@@ -213,28 +213,29 @@ export function useOllama() {
       let fullText = "";
       let tokens: number | undefined;
       const initialTemperature = needsExecutionHint(content) ? 0.15 : temperature;
-      const forcedTool = needsExecutionHint(content) ? inferFallbackTool(content) : null;
+      const fallbackTool = needsExecutionHint(content) ? inferFallbackTool(content) : null;
 
-      if (forcedTool) {
+      if (fallbackTool) {
         fullText = `Using the local tool for this request.`;
       } else {
         // Stream first response
         for await (const delta of aiClient.streamChat(history, selectedModel, { temperature: initialTemperature }, signal)) {
-        fullText += delta.text;
-        if (delta.completionTokens) tokens = delta.completionTokens;
-        const display1 = sanitizeResponse(fullText);
-        setMessages(prev => prev.map(m =>
-          m.id === assistantId ? { ...m, content: display1, tokens } : m
-        ));
-        if (parseToolCall(fullText)) break;
+          fullText += delta.text;
+          if (delta.completionTokens) tokens = delta.completionTokens;
+          const display1 = sanitizeResponse(fullText);
+          setMessages(prev => prev.map(m =>
+            m.id === assistantId ? { ...m, content: display1, tokens } : m
+          ));
+          if (parseToolCall(fullText)) break;
+        }
       }
 
-      if (forcedTool) {
+      if (fallbackTool) {
         setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: "Executing requested action…", isStreaming: true } : m));
       }
 
       // ── Fake execution interceptor ────────────────────────────────────────
-      if (detectFakeExecution(fullText) && !parseToolCall(fullText)) {
+      if (!fallbackTool && detectFakeExecution(fullText) && !parseToolCall(fullText)) {
         setMessages(prev => prev.map(m =>
           m.id === assistantId
             ? { ...m, content: "Correcting — executing for real…", isStreaming: true }
@@ -260,7 +261,7 @@ export function useOllama() {
       }
 
       // ── Tool call chain — up to 10 steps ─────────────────────────────────
-      let toolCall = parseToolCall(fullText) ?? (forcedTool ? { tool: forcedTool.tool, args: forcedTool.args } : null);
+      let toolCall = parseToolCall(fullText) ?? (fallbackTool ? { tool: fallbackTool.tool, args: fallbackTool.args } : null);
       let steps = 0;
 
       while (toolCall && steps < 10 && !signal.aborted) {
