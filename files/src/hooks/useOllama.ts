@@ -185,6 +185,7 @@ export function useOllama() {
           hist.push({ role: "system", content: "Operational task. Execute with the best available tool now. Prefer the local desktop agent for shell, GitHub, Docker, filesystem, and remote access. Do not stop at a plan." });
         }
         if (m.role === "user") {
+          hist.push({ role: "system", content: "Stay on the current task. Do not refer to the user as Lonnie; address them as 'you' or 'the operator'. Be proactive, concise, and evidence-based." });
           if (m.imageBase64) {
             hist.push({ role: "user", content: [
               { type: "image_url", image_url: { url: `data:image/jpeg;base64,${m.imageBase64}` } },
