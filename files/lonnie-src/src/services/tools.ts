@@ -30,7 +30,7 @@ export const TOOL_REGISTRY: ToolDef[] = [
   { name: "web_search",            label: "Web Search",         description: "Open browser search tab",                     emoji: "🔍", category: "web",     enabledByDefault: true },
   { name: "fetch_image",           label: "Fetch Image",        description: "Retrieve and display an image inline",        emoji: "🖼️", category: "web",     enabledByDefault: true },
   { name: "open_url",              label: "Open URL",           description: "Open a URL in browser tab",                   emoji: "🔗", category: "web",     enabledByDefault: true },
-  { name: "http_request",          label: "HTTP Request",       description: "GET/POST any URL or REST API",                emoji: "🌐", category: "web",     enabledByDefault: true },
+  { name: "http_request",          label: "HTTP Request",       description: "GET/POST any URL or REST API. For GitHub/HuggingFace use the local agent with curl instead.", emoji: "🌐", category: "web",     enabledByDefault: true },
   { name: "read_file",             label: "Read File",          description: "Open & read a local file",                    emoji: "📄", category: "files",   enabledByDefault: true, requiresGrant: true },
   { name: "write_file",            label: "Save File",          description: "Create/save a file to disk",                  emoji: "💾", category: "files",   enabledByDefault: true },
   { name: "list_directory",        label: "Browse Folder",      description: "List local folder contents",                  emoji: "📁", category: "files",   enabledByDefault: true, requiresGrant: true },
@@ -49,6 +49,23 @@ export interface ImageResult {
   url: string;
   query: string;
   source: string;
+}
+
+export function inferFallbackTool(text: string): { tool: ToolName; args: Record<string, unknown> } | null {
+  const t = text.toLowerCase();
+  if (/(screenshot|screen shot|capture|desktop)/.test(t)) {
+    return { tool: "agent_screenshot", args: {} };
+  }
+  if (/(docker|container|containers|port|ports|image|compose)/.test(t)) {
+    return { tool: "agent_docker_ps", args: {} };
+  }
+  if (/(remember|store|save|memory)/.test(t)) {
+    return { tool: "memory_store", args: { key: "agent_session", value: text.slice(0, 200) } };
+  }
+  if (/(read|open|show|view|list|browse|folder|directory|file|path|workspace|repo)/.test(t)) {
+    return { tool: "agent_list_dir", args: { path: "." } };
+  }
+  return null;
 }
 
 export async function executeTool(name: ToolName, args: Record<string, unknown>): Promise<string | ImageResult> {
@@ -149,6 +166,9 @@ export async function executeTool(name: ToolName, args: Record<string, unknown>)
     case "http_request": {
       const { url, method = "GET", headers = {}, body } = args as any;
       if (!url) return "Error: url required.";
+      if (/^(https?:\/\/)?(raw\.githubusercontent\.com|api\.github\.com|github\.com|huggingface\.co|cdn\.hf\.co)/i.test(url)) {
+        return `Browser fetch is blocked for ${url}. Use the local agent with curl instead, for example: agent_exec {"command":"curl -L \"${url}\""}`;
+      }
       try {
         const r = await fetch(url, {
           method,

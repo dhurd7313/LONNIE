@@ -3,9 +3,10 @@ import {
   aiClient, OPENROUTER_FREE_MODELS, type AIModel, type ChatMessage, type BackendType
 } from "@/integrations/ollama/client";
 import {
-  executeTool, executeAgentTool, parseToolCall, detectFakeExecution, sanitizeResponse,
+  executeTool, executeAgentTool, parseToolCall, inferFallbackTool, detectFakeExecution, sanitizeResponse,
   TOOL_REGISTRY, AGENT_TOOL_REGISTRY, type ToolName, type ImageResult
 } from "@/services/tools";
+import { agent } from "@/lib/localAgent";
 import { buildDynamicSystemPrompt } from "@/data/persona";
 import { voice } from "@/lib/voice";
 import { gef } from "@/lib/gef";
@@ -51,6 +52,8 @@ function save(s: Partial<Settings>) {
 
 const BROKEN = ["cogito","wormgpt","blackgrg","retired","deprecated","671b"];
 const isBroken = (m: string) => BROKEN.some(b => m.toLowerCase().includes(b));
+const ACTION_HINT_RE = /\b(read|inspect|check|search|list|clone|download|run|write|create|open|fetch|get|compare|analyze|summarize|view|status|pull|build|push|test|monitor|connect|install|update|github|repo|docker|file|folder|terminal|shell|curl|system|process|clipboard)\b/i;
+const needsExecutionHint = (text: string) => ACTION_HINT_RE.test(text);
 
 // Intervention when model fakes execution or hallucinates results
 const FORCE_EXECUTION = `STOP. You either described a tool call instead of making one, OR you fabricated a result.
@@ -178,6 +181,9 @@ export function useOllama() {
       const systemPrompt = await buildDynamicSystemPrompt(enabledTools);
       const hist: ChatMessage[] = [{ role: "system", content: systemPrompt }];
       for (const m of msgs) {
+        if (m.role === "user" && needsExecutionHint(m.content)) {
+          hist.push({ role: "system", content: "Operational task. Execute with the best available tool now. Prefer the local desktop agent for shell, GitHub, Docker, filesystem, and remote access. Do not stop at a plan." });
+        }
         if (m.role === "user") {
           if (m.imageBase64) {
             hist.push({ role: "user", content: [
@@ -205,9 +211,14 @@ export function useOllama() {
 
       let fullText = "";
       let tokens: number | undefined;
+      const initialTemperature = needsExecutionHint(content) ? 0.15 : temperature;
+      const forcedTool = needsExecutionHint(content) ? inferFallbackTool(content) : null;
 
-      // Stream first response
-      for await (const delta of aiClient.streamChat(history, selectedModel, { temperature }, signal)) {
+      if (forcedTool) {
+        fullText = `Using the local tool for this request.`;
+      } else {
+        // Stream first response
+        for await (const delta of aiClient.streamChat(history, selectedModel, { temperature: initialTemperature }, signal)) {
         fullText += delta.text;
         if (delta.completionTokens) tokens = delta.completionTokens;
         const display1 = sanitizeResponse(fullText);
@@ -215,6 +226,10 @@ export function useOllama() {
           m.id === assistantId ? { ...m, content: display1, tokens } : m
         ));
         if (parseToolCall(fullText)) break;
+      }
+
+      if (forcedTool) {
+        setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: "Executing requested action…", isStreaming: true } : m));
       }
 
       // ── Fake execution interceptor ────────────────────────────────────────
@@ -244,7 +259,7 @@ export function useOllama() {
       }
 
       // ── Tool call chain — up to 10 steps ─────────────────────────────────
-      let toolCall = parseToolCall(fullText);
+      let toolCall = parseToolCall(fullText) ?? (forcedTool ? { tool: forcedTool.tool, args: forcedTool.args } : null);
       let steps = 0;
 
       while (toolCall && steps < 10 && !signal.aborted) {
@@ -263,6 +278,11 @@ export function useOllama() {
           toolName: toolCall!.tool, toolArgs: toolCall!.args,
           timestamp: new Date(),
         }]);
+
+        // Preflight: ensure the agent is reachable for agent tools
+        if (toolCall!.tool.startsWith("agent_")) {
+          try { await agent.ping(); } catch {}
+        }
 
         // Execute the actual tool
         let toolResult: string;

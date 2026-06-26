@@ -8,7 +8,8 @@ export type ToolName =
   | "memory_search" | "memory_export"
   | "send_email" | "create_calendar_event"
   | "run_js" | "get_battery" | "get_geolocation" | "take_screenshot"
-  | "add_skill" | "list_skills";
+  | "add_skill" | "list_skills"
+  | "agent_exec" | "agent_screenshot" | "agent_docker_ps" | "agent_docker_images" | "agent_list_dir" | "agent_read_file";
 
 export interface ToolDef {
   name: ToolName;
@@ -32,7 +33,7 @@ export const TOOL_REGISTRY: ToolDef[] = [
   { name: "web_search",            label: "Web Search",         description: "Open a real browser search tab with results", emoji: "🔍", category: "web",     enabledByDefault: true },
   { name: "fetch_image",           label: "Fetch Image",        description: "Retrieve and display an image inline. Args: query (required, be specific)", emoji: "🖼️", category: "web", enabledByDefault: true },
   { name: "open_url",              label: "Open URL",           description: "Open any URL in a new browser tab",           emoji: "🔗", category: "web",     enabledByDefault: true },
-  { name: "http_request",          label: "HTTP Request",       description: "Make GET/POST to any URL and return response. Args: url (required)", emoji: "🌐", category: "web", enabledByDefault: true },
+  { name: "http_request",          label: "HTTP Request",       description: "Make GET/POST to any URL and return response. For GitHub/HuggingFace use the local agent with curl instead.", emoji: "🌐", category: "web", enabledByDefault: true },
   { name: "read_file",             label: "Read File",          description: "Open and read a local file",                  emoji: "📄", category: "files",   enabledByDefault: true, requiresGrant: true },
   { name: "write_file",            label: "Save File",          description: "Save content to a file. Args: filename, content", emoji: "💾", category: "files", enabledByDefault: true },
   { name: "list_directory",        label: "Browse Folder",      description: "List contents of a local folder",             emoji: "📁", category: "files",   enabledByDefault: true, requiresGrant: true },
@@ -53,6 +54,23 @@ export interface ImageResult {
   url: string;
   query: string;
   source: string;
+}
+
+export function inferFallbackTool(text: string): { tool: ToolName; args: Record<string, unknown> } | null {
+  const t = text.toLowerCase();
+  if (/(screenshot|screen shot|capture|desktop)/.test(t)) {
+    return { tool: "agent_screenshot", args: {} };
+  }
+  if (/(docker|container|containers|port|ports|image|compose)/.test(t)) {
+    return { tool: "agent_docker_ps", args: {} };
+  }
+  if (/(remember|store|save|memory)/.test(t)) {
+    return { tool: "memory_store", args: { key: "agent_session", value: text.slice(0, 200) } };
+  }
+  if (/(read|open|show|view|list|browse|folder|directory|file|path|workspace|repo)/.test(t)) {
+    return { tool: "agent_list_dir", args: { path: "." } };
+  }
+  return null;
 }
 
 export async function executeTool(name: ToolName, args: Record<string, unknown>): Promise<string | ImageResult> {
@@ -183,6 +201,9 @@ export async function executeTool(name: ToolName, args: Record<string, unknown>)
       const url = String(args.url ?? "").trim();
       if (!url) return "Error: url is required. Provide a real URL to fetch.";
       const method = String(args.method ?? "GET").toUpperCase();
+      if (/^(https?:\/\/)?(raw\.githubusercontent\.com|api\.github\.com|github\.com|huggingface\.co|cdn\.hf\.co)/i.test(url)) {
+        return `Browser fetch is blocked for ${url}. Use the local agent with curl instead, for example: agent_exec {"command":"curl -L \"${url}\""}`;
+      }
       const customHeaders = (args.headers ?? {}) as Record<string, string>;
       const body = args.body;
       try {
@@ -398,6 +419,21 @@ export async function executeTool(name: ToolName, args: Record<string, unknown>)
 
     default: return `Unknown tool: ${name as string}`;
   }
+}
+
+// ── Deterministic fallback for dumb/weak models ─────────────────────────────
+export function inferFallbackTool(text: string): { tool: ToolName; args: Record<string, unknown> } | null {
+  const t = text.toLowerCase();
+  if (/(screenshot|screen shot|capture|desktop)/.test(t)) {
+    return { tool: "agent_screenshot", args: {} };
+  }
+  if (/(docker|container|containers|port|ports|image|compose)/.test(t)) {
+    return { tool: "agent_docker_ps", args: {} };
+  }
+  if (/(read|open|show|view|list|browse|folder|directory|file|path|workspace|repo)/.test(t)) {
+    return { tool: "agent_list_dir", args: { path: "." } };
+  }
+  return null;
 }
 
 // ── Parse tool call from model output ─────────────────────────────────────────

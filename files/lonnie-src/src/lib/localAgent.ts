@@ -67,7 +67,7 @@ class LocalAgentClient {
   constructor() {
     const c = loadConfig();
     this._url = c.url || "http://localhost:45678";
-    this._token = c.token || "";
+    this._token = c.token || (this._url.includes("localhost") || this._url.includes("127.0.0.1") ? "lonnie-local" : "");
   }
 
   get url() { return this._url; }
