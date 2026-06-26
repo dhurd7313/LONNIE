@@ -1,0 +1,14 @@
+{
+    "serverpulse.ai.enabled": true,
+    "serverpulse.ai.optInShown": true,
+    "serverpulse.services": [
+        {
+            "name": "lonnie-src (nodejs)",
+            "type": "nodejs",
+            "port": 8000,
+            "healthCheckPath": "",
+            "enableHealthCheck": true,
+            "healthCheckInterval": 60000
+        }
+    ]
+}

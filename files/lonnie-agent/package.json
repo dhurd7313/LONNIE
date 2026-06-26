@@ -1,0 +1,25 @@
+{
+  "name": "lonnie-agent",
+  "version": "1.0.0",
+  "description": "LONNIE local desktop agent — gives the browser app real system access",
+  "type": "module",
+  "main": "agent.js",
+  "scripts": {
+    "start": "node agent.js",
+    "dev": "node --watch agent.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "screenshot-desktop": "^1.12.7",
+    "node-pty": "^1.0.0",
+    "systeminformation": "^5.21.22",
+    "dockerode": "^4.0.0",
+    "chokidar": "^3.5.3",
+    "ws": "^8.16.0",
+    "open": "^9.1.0",
+    "clipboardy": "^4.0.0",
+    "node-notifier": "^10.0.1",
+    "robotjs": "^0.6.0"
+  }
+}
